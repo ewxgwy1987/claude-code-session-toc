@@ -1,0 +1,34 @@
+{
+  "name": "session-toc",
+  "version": "0.1.0",
+  "description": "A clickable table of contents of the whole current session: topics grouped by category, with timestamps, in a pane",
+  "author": {
+    "name": "Rain Guo"
+  },
+  "license": "MIT",
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "wrapText": {
+      "type": "boolean",
+      "title": "Wrap long descriptions",
+      "description": "Show the full text of every topic, summary and message on several lines instead of cutting it to one line",
+      "default": false
+    },
+    "autoGroupEvery": {
+      "type": "number",
+      "title": "Group new messages automatically after",
+      "description": "New messages appear in the pane by themselves as you talk (no Claude call). Once this many are waiting ungrouped, one small Claude call files them into topics. 0 = only when you press Refresh.",
+      "default": 5
+    }
+  },
+  "repository": "https://github.com/ewxgwy1987/claude-code-session-toc",
+  "homepage": "https://github.com/ewxgwy1987/claude-code-session-toc#readme",
+  "keywords": [
+    "claude-code",
+    "mod",
+    "table-of-contents",
+    "history",
+    "navigation",
+    "transcript"
+  ]
+}
