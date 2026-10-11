@@ -2,6 +2,8 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, UiPressArgument } from 'claude-code'
 
 import type { TocBoard } from '../types'
+import { readTranscript } from './extract'
+import type { Extracted, TranscriptIO } from './extract'
 import { groupEntries, topicsInOrder } from './group'
 import type { Ask, Entry, Toc } from './group'
 
@@ -27,40 +29,29 @@ export const fmtStamp = (iso: string) => {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`
 }
 
-type Extracted = { entries: Entry[]; firstAt: string | null; lastAt: string | null }
-
-export const parseExtract = (stdout: string): Extracted | { error: string } => {
-  try {
-    const o = JSON.parse(stdout.trim()) as { error?: unknown; entries?: unknown; firstAt?: unknown; lastAt?: unknown }
-    if (typeof o.error === 'string') return { error: o.error }
-    if (!Array.isArray(o.entries)) return { error: 'The extractor returned no entries.' }
-    const entries = (o.entries as Entry[]).map((x, i) => ({ ...x, i }))
-    return {
-      entries,
-      firstAt: typeof o.firstAt === 'string' ? o.firstAt : (entries[0]?.at ?? null),
-      lastAt: typeof o.lastAt === 'string' ? o.lastAt : (entries.at(-1)?.at ?? null),
-    }
-  } catch {
-    return { error: 'The extractor output was not valid JSON.' }
-  }
-}
+const transcriptIO = ($: $): TranscriptIO => ({
+  homeVars: async () => ({
+    CLAUDE_CONFIG_DIR: await $.env.get('CLAUDE_CONFIG_DIR'),
+    USERPROFILE: await $.env.get('USERPROFILE'),
+    HOME: await $.env.get('HOME'),
+  }),
+  list: path => $.fs.list(path),
+  stat: path => $.fs.stat(path),
+  exists: path => $.fs.exists(path),
+  read: path => $.fs.read(path),
+  stream: async (argv, env, onText) => {
+    const child = $.process.spawn({ argv, env })
+    for await (const { stream, text } of child) if (stream === 'stdout') onText(text)
+    return (await child.result).code
+  },
+})
 
 const runExtract = async ($: $, sessionId: string): Promise<Extracted | { error: string }> => {
-  const script = `${$.plugin.root.replace(/[\\/]+$/, '')}/scripts/extract.ps1`
-  const args = ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', script, '-SessionId', sessionId]
-  let last = 'PowerShell could not be started.'
-  for (const shell of ['pwsh', 'powershell']) {
-    try {
-      const r = await $.process.run([shell, ...args], { timeoutMs: 180_000 })
-      const parsed = parseExtract(r.stdout)
-      if (!('error' in parsed)) return parsed
-      last = parsed.error
-      if (r.exitCode === 2) return parsed
-    } catch {
-      continue
-    }
+  try {
+    return await readTranscript(transcriptIO($), sessionId)
+  } catch (err) {
+    return { error: `Cannot read the transcript: ${err instanceof Error ? err.message : String(err)}` }
   }
-  return { error: last }
 }
 
 const setBoard = ($: $, change: (b: TocBoard) => TocBoard, sessionId: string) =>

@@ -1,7 +1,7 @@
 import { expect, mock, test } from 'claude-code/testing'
 import type { On } from 'claude-code'
 
-import { fmtStamp, jumpOf, jumpTargets, keepRecent, parseExtract, remember, shouldAsk, textKey } from '../hooks/register'
+import { fmtStamp, jumpOf, jumpTargets, keepRecent, remember, shouldAsk, textKey } from '../hooks/register'
 
 const entry = (i: number, text: string, at: string) => ({
   i,
@@ -51,13 +51,18 @@ test('timestamps read YYYY-MM-dd HH:mm:ss in local time', () => {
   expect(fmtStamp('not a date')).toBe('not a date')
 })
 
-test('extractor output is parsed and re-indexed; errors come through', () => {
-  const ok = parseExtract(JSON.stringify({ firstAt: 'a', lastAt: 'b', entries: [entry(5, 'x', 'a'), entry(9, 'y', 'b')] }))
-  expect('error' in ok).toBe(false)
-  if (!('error' in ok)) expect(ok.entries.map(e => e.i)).toEqual([0, 1])
-  expect(parseExtract('{"error":"Transcript not found"}')).toEqual({ error: 'Transcript not found' })
-  expect(parseExtract('garbage')).toEqual({ error: 'The extractor output was not valid JSON.' })
-})
+// The session's transcript file under a macOS home, one user row per entry.
+const transcriptOf = (entries: { uuid: string; text: string; at: string }[]) =>
+  entries.map(e => JSON.stringify({ type: 'user', uuid: e.uuid, timestamp: e.at, entrypoint: 'claude-desktop', message: { content: e.text } })).join('\n')
+const fakeTranscript = (on: On, text: string, reads: string[], size = text.length) => {
+  const path = '/Users/a/.claude/projects/-Users-a-app/sess-1.jsonl'
+  mock.env(on, { HOME: '/Users/a' })
+  on('fs.list', () => ({ value: [{ name: '-Users-a-app', kind: 'dir', size: 0, mtimeMs: 0, isLink: false }] }) as never)
+  on('fs.exists', (_$, e) => ({ value: e.path === path }) as never)
+  on('fs.stat', () => ({ value: { kind: 'file', size, mtimeMs: 1, isLink: false } }) as never)
+  on('fs.read', (_$, e) => (reads.push(e.path), { value: text }) as never)
+  return path
+}
 
 test('the pane lists categories and timestamped topics on the terminal and the app', async ($, on) => {
   fakeEngine(on, [], '')
@@ -168,11 +173,10 @@ test('messages not grouped yet show at once under New, newest first', async ($, 
 })
 
 test('a new prompt re-reads the transcript in the background without calling Claude', async ($, on) => {
-  const runs: string[][] = []
+  const reads: string[] = []
   const asks: string[] = []
-  const four = { firstAt: 'a', lastAt: '2026-10-08T10:00:00.000Z', entries: [...BOARD.entries, entry(3, 'Load new talk', '2026-10-08T10:00:00.000Z')] }
   const clock = fakeEngine(on, [], '')
-  on('process.run', (_$, e) => (runs.push([...((e as { argv?: string[] }).argv ?? [])]), { value: { stdout: JSON.stringify(four), stderr: '', exitCode: 0 } }) as never)
+  fakeTranscript(on, transcriptOf([...BOARD.entries, entry(3, 'Load new talk', '2026-10-08T10:00:00.000Z')]), reads)
   on('model.complete', (_$, e) => (asks.push(String((e as { prompt?: unknown }).prompt)), { value: { isAnswered: false, text: '' } }) as never)
   on('prompt.submit', (_$, e) => ({ text: (e as { text: string }).text }) as never)
   await $.session.start({ cwd: '.', surface: 'desktop', isInteractive: true })
@@ -181,10 +185,35 @@ test('a new prompt re-reads the transcript in the background without calling Cla
   const ui = await $.ui.mount({ plugin: 'session-toc', surface: 'desktop', component: 'Pane', requestId: 'session-toc', props: PROPS })
   const texts = (await ui.findAll({})).map(n => n.text).join('|')
   await ui.unmount()
-  expect(runs.length).toBeGreaterThan(0)
+  expect(reads.length).toBeGreaterThan(0)
   expect(asks).toHaveLength(0)
   expect(texts).toContain('You: Load new talk')
   expect(texts).toContain('New · 1 not grouped yet')
+})
+
+test('a transcript over 4 MiB is streamed through cat on macOS, with no PowerShell', async ($, on) => {
+  const reads: string[] = []
+  const spawned: string[][] = []
+  const clock = fakeEngine(on, [], '')
+  const text = transcriptOf([...BOARD.entries, entry(3, 'Load new talk', '2026-10-08T10:00:00.000Z')])
+  const path = fakeTranscript(on, text, reads, 30 * 1024 * 1024)
+  on('process.spawn', async function* (_$, e) {
+    spawned.push([...e.argv])
+    yield { stream: 'stdout' as const, text: text.slice(0, 50) }
+    yield { stream: 'stderr' as const, text: 'noise' }
+    yield { stream: 'stdout' as const, text: text.slice(50) }
+    return { value: { code: 0, signal: null } }
+  })
+  on('prompt.submit', (_$, e) => ({ text: (e as { text: string }).text }) as never)
+  await $.session.start({ cwd: '.', surface: 'desktop', isInteractive: true })
+  await $.prompt.submit({ text: 'Load new talk' } as never)
+  await clock.advance(2_000)
+  const ui = await $.ui.mount({ plugin: 'session-toc', surface: 'desktop', component: 'Pane', requestId: 'session-toc', props: PROPS })
+  const texts = (await ui.findAll({})).map(n => n.text).join('|')
+  await ui.unmount()
+  expect(reads).toEqual([])
+  expect(spawned).toEqual([['cat', '--', path]])
+  expect(texts).toContain('You: Load new talk')
 })
 
 test('after a failed background grouping the next try waits for more messages', () => {

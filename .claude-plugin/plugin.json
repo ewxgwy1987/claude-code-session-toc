@@ -1,6 +1,6 @@
 {
   "name": "session-toc",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "A clickable table of contents of the whole current session: topics grouped by category, with timestamps, in a pane",
   "author": {
     "name": "Rain Guo"

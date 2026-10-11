@@ -42,20 +42,14 @@ Times are shown as `YYYY-MM-dd HH:mm:ss` in your local time zone.
 - A Claude Code build that supports **function-hook plugins** (plugins with a
   `hooks/hooks.json` that lists TypeScript modules). This plugin was built and
   tested with Claude Code **2.1.289**.
-- **PowerShell**, used to read the session transcript:
-  - On Windows, PowerShell 7 (`pwsh`) or the built-in Windows PowerShell 5.1
-    (`powershell`). The plugin tries `pwsh` first, then `powershell`.
-  - **On macOS and Linux you must install PowerShell 7 (`pwsh`)** and have it
-    on your `PATH`. Without it the pane cannot read anything. See also the
-    macOS/Linux note under Troubleshooting.
+- **Windows, macOS or Linux.** Nothing else to install: the mod reads the
+  transcript itself. A transcript over 4 MiB is streamed through a tool every
+  system already has: `cat` on macOS and Linux, the built-in Windows
+  PowerShell on Windows.
 - Grouping uses the Haiku model through your normal Claude Code login. It needs
   no API key of its own.
 
 ## Install
-
-> **PowerShell first.** Windows already has it. On macOS and Linux, install
-> PowerShell 7 so that `pwsh` is on your `PATH`. Without it the pane stays
-> empty.
 
 The repository root is the plugin. Clone it:
 
@@ -170,15 +164,21 @@ Two options are declared in `plugin.json` (`userConfig`). Change them in
 
 ### 1. Reading the transcript (no model call)
 
-`scripts/extract.ps1` reads the session's transcript file:
+`hooks/extract.ts` reads the session's transcript file:
 `~/.claude/projects/<project>/<sessionId>.jsonl`, or the same path under
-`CLAUDE_CONFIG_DIR` when that variable is set. If the same session id exists in
+`CLAUDE_CONFIG_DIR` when that variable is set. The home folder is `HOME` on
+macOS and Linux and `USERPROFILE` on Windows. If the same session id exists in
 several project folders, it takes the newest file.
 
-It prints one compact JSON object. Each entry holds:
+A transcript up to 4 MiB is read directly. A longer one is streamed through
+`cat` (macOS, Linux) or the built-in Windows PowerShell (Windows), because a
+mod can read at most 4 MiB in one go. The file is opened for shared reading,
+so Claude Code keeps writing to it meanwhile.
+
+Each entry holds:
 
 - the time, the role (`user` or `command`) and the message id;
-- the text, cut to 300 characters (`-MaxChars`);
+- the text, cut to 300 characters;
 - where it was typed (for example `cli` or `app`);
 - the time, id and first 300 characters of Claude's **first** text reply;
 - the id of the **first** tool call Claude made in answer (used as a jump target).
@@ -191,7 +191,7 @@ results, system reminders, local command output, task and system
 notifications, messages from other Claude sessions, and "[Request interrupted"
 markers.
 
-A long session takes about 1.4 seconds to read.
+A 15 MB transcript takes about half a second to read.
 
 ### 2. Grouping (one Haiku call)
 
@@ -317,12 +317,13 @@ usage like any other Haiku request.
 - **"transcript not found for session …"** — the transcript is not under
   `~/.claude/projects` (or `$CLAUDE_CONFIG_DIR/projects`). Check that
   variable if you moved your Claude Code folder.
-- **"PowerShell could not be started."** — neither `pwsh` nor `powershell`
-  could be run. Install PowerShell 7 and make sure it is on your `PATH`.
-- **"The extractor output was not valid JSON."** — PowerShell started but the
-  script failed before printing anything. Run it by hand (see Development) to
-  see the error. It looks for your Claude Code folder in `CLAUDE_CONFIG_DIR`,
-  else in `~/.claude` (PowerShell's `$HOME`, on every OS).
+- **"Cannot read the transcript (N MB): …"** — the transcript is over 4 MiB
+  and the tool that streams it could not run: `cat` on macOS and Linux,
+  `powershell` (or `pwsh`, or `cat`) on Windows. Check that one of them is on
+  the `PATH` Claude Code runs with.
+- **"PowerShell could not be started."** — you are running version 0.1.0,
+  which needed PowerShell 7 on macOS and Linux. Update the mod to 0.2.0 or
+  later.
 - **"Claude could not group the topics."** — the first grouping failed or
   gave no usable answer. Press Refresh to try again. When a background update
   fails, the message says so and the new messages stay in the New section; the
@@ -340,7 +341,7 @@ usage like any other Haiku request.
   in all. If the store refuses a write, the pane keeps working; the table is
   just not saved for the next start.
 - Background reads run only in a session whose table you have opened (or that
-  has a saved table). Each costs about a second of CPU and no tokens.
+  has a saved table). Each takes well under a second of CPU and no tokens.
 - On a surface without buttons, the buttons show as dim `[Refresh]`-style text.
   Use the `/session-toc` command there.
 
@@ -354,9 +355,9 @@ Files:
 | `hooks/hooks.json` | Lists the hooks module. |
 | `hooks/register.tsx` | Command, pane, background loading, jumping. |
 | `hooks/group.ts` | Prompts, answer parsing and merging. |
-| `scripts/extract.ps1` | Transcript reader. Keep it ASCII-only (5.1 reads BOM-less files as ANSI). |
+| `hooks/extract.ts` | Transcript reader: finds the file, reads or streams it, turns it into entries. |
 | `types/index.d.ts` | The plugin's state and data types. |
-| `tests/*.test.ts` | Tests for grouping and the pane. |
+| `tests/*.test.ts` | Tests for the transcript reader, grouping and the pane. |
 
 Run these from the repository root. Check the manifest, run the tests, and
 type-check:
@@ -376,17 +377,10 @@ whenever it loads it, so load the plugin once, for example with
 While a session loads the folder through `--plugin-dir` or
 `CLAUDE_CODE_PLUGIN_DIRS`, saving a file reloads the mod straight away.
 
-Run the extractor by hand, from the repository root, to see what the pane
-reads:
-
-```sh
-pwsh -NoProfile -File scripts/extract.ps1 -SessionId <id>
-```
-
-Other parameters: `-TranscriptPath <file>` reads a given file,
-`-After <ISO time>` keeps only later entries, and `-MaxChars <n>` changes the
-cut length (default 300). On error it prints `{"error":"…"}` and exits with
-code 2.
+`hooks/extract.ts` keeps everything that touches the engine behind a small
+`TranscriptIO` object, which `register.tsx` builds from `$`. The tests in
+`tests/extract.test.ts` pass a fake one, so the reader is tested without real
+files.
 
 ## See also
 

@@ -8,11 +8,9 @@ session. Topics are grouped into categories, and each one has a timestamp.
 
 ## 1. Get started
 
-1. **Check PowerShell.** Windows already has it. On macOS and Linux, install
-   PowerShell 7 so that `pwsh` is on your `PATH`.
-2. **Install** the mod as the [README](README.md#install) describes. The
+1. **Install** the mod as the [README](README.md#install) describes. The
    quickest way is `claude --plugin-dir /path/to/claude-code-session-toc`.
-3. **Talk for a while**, then type `/session-toc`. The **Contents** pane opens
+2. **Talk for a while**, then type `/session-toc`. The **Contents** pane opens
    and builds a table of the session so far. This takes one Haiku call.
 4. **Keep talking.** New messages appear at the top of the pane by themselves.
    Every 5 new messages, they are filed into topics.
@@ -127,9 +125,9 @@ Nothing is sent anywhere else.
 | Symptom | What to do |
 |---|---|
 | `/session-toc` is unknown | The mod did not load. Run `claude plugin validate .` in the clone. For `CLAUDE_CODE_PLUGIN_DIRS`, use an absolute path, put it in **user** settings, and start a new session |
-| "PowerShell could not be started." | Install PowerShell 7 (`pwsh`) and put it on your `PATH` |
+| "PowerShell could not be started." | You have version 0.1.0, which needed PowerShell 7 on macOS and Linux. Update the mod; 0.2.0 and later need nothing extra on any system |
 | "transcript not found for session …" | The transcript is not under `~/.claude/projects`. If you moved your Claude Code folder, check `CLAUDE_CONFIG_DIR` |
-| "The extractor output was not valid JSON." | Run `scripts/extract.ps1` by hand to see the error (see the README's Development section) |
+| "Cannot read the transcript (N MB): …" | The transcript is over 4 MiB and could not be streamed. Check that `cat` (macOS, Linux) or `powershell` (Windows) is on Claude Code's `PATH` |
 | "Claude could not group the topics." | Press Refresh. Automatic grouping waits for more messages before trying again, so a failing call is not repeated on every message |
 | A timestamp click copies text instead of jumping | Expected in the desktop app. Search the chat for the copied words |
 | Old work shows as "Earlier work" | The session is very long, so the oldest messages were folded into one topic. Rebuild, or accept the fold |
